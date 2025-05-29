@@ -1,0 +1,14 @@
+efficiency:
+    transposition table
+    iterative deepening
+    quiescence search
+    late move reductions (alpha - beta)
+    null move pruning (alpha - beta)
+    cache
+    expensive operation reduction (sortMoves / evalNode)
+diagnosis:
+    proffiling + hotspotting
+logic:
+    improve evalNode
+    add memory
+    +rep for winning, -rep for losing (learn from mistakes)

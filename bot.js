@@ -1,22 +1,21 @@
 const { Chess } = require('chess.js');
 const readline = require('readline');
+const path = require('path');
+const fs = require('fs');
 
 let currentPieceDelta = 0;
 let currentActivityDelta = 0;
 let currentCenterControlDelta = 0;
 const moveCategories = {};
-
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
   terminal: false
 });
-
 rl.on('line', fen => {
   rl.close();
   startBot(fen.trim());
 });
-
 function startBot(fen) {
     const root = new Chess(fen);
     let depth = 1;
@@ -32,6 +31,15 @@ function startBot(fen) {
       setImmediate(nextDepth);
     })();
   }
+  const CACHE_FILE = path.join(__dirname, '.analysis_cache.json');
+let CACHE = {};
+try {
+  CACHE = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+} catch { CACHE = {}; }
+
+function saveCache() {
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(CACHE, null, 2));
+}
   const categoryWeights = {
     "szach": 100,
     "promocja": 90,
@@ -41,24 +49,18 @@ function startBot(fen) {
     "nudny ruch": 0,
     "podstawka": -999
   };
-
 function sortMoves(board, moves) {
     const stm = board.turn();
     const opponent = stm === 'w' ? 'b' : 'w';
     const materialValues = { p: 1, n: 3, b: 3, r: 5, q: 9 };
-
     const scoredMoves = [];
-
     for (const m of moves) {
       const key = m.from + m.to + (m.promotion || '');
       let category = "nudny ruch";
-
-      // sprawdź bicie i słabe bicie
       let target = board.get(m.to);
       const wasCapture = (m.flags.includes('c') || m.flags.includes('e'));
       let isWeakCapture = false;
       if (wasCapture && target) {
-        // po wykonaniu ruchu sprawdź czy przeciwnik może zbic naszym ruchem zdobytą figurę lekką
         board.move(m);
         const capType = target.type;
         const capValue = materialValues[capType] || 0;
@@ -75,7 +77,6 @@ function sortMoves(board, moves) {
         }
         board.undo();
       }
-
       board.move(m);
       if (board.isAttacked(m.to, opponent) && !board.isAttacked(m.to, stm)) {
         category = "podstawka";
@@ -93,49 +94,42 @@ function sortMoves(board, moves) {
         }
       }
       board.undo();
-
       moveCategories[key] = category;
       scoredMoves.push({ move: m, score: categoryWeights[category] });
     }
-
     scoredMoves.sort((a, b) => b.score - a.score);
     return scoredMoves.map(obj => obj.move);
   }
-
-
   function negamaxLine(node, depth, alpha, beta) {
     if (depth === 0) return { score: evalNode(node), line: [] };
-  
     let moves = node.moves({ verbose: true });
     if (moves.length === 0) return { score: node.inCheck() ? -100000 + depth : 0, line: [] };
-  
     moves = sortMoves(node, moves); 
-  
     let best = -Infinity;
     let bestLine = [];
-  
     for (const m of moves) {
       node.move(m);
       const { score, line } = negamaxLine(node, depth - 1, -beta, -alpha);
       const actualScore = -score;
       node.undo();
-  
       if (actualScore > best) {
         best = actualScore;
         bestLine = [m.from + m.to + (m.promotion || '')].concat(line);
       }
       alpha = Math.max(alpha, actualScore);
-      if (alpha >= beta) break;  // Pruning
+      if (alpha >= beta) break;
     }
     return { score: best, line: bestLine};
   }
-  
-
 function searchRoot(root, maxDepth) {
+    const fen = root.fen();
+    const cacheEntry = CACHE[fen] || {};
+    if (cacheEntry.depth >= maxDepth) {
+      return { best: cacheEntry.best, line: cacheEntry.line };
+    }
     let moves = root.moves({ verbose: true });
     if (!moves.length) return { best: null, line: [], sortedMoves: [] };
-    moves = sortMoves(root, moves);
-  
+    moves = sortMoves(root, moves); 
     let bestMove = moves[0];
     let bestScore = -Infinity;
     let bestLine = [];
@@ -156,11 +150,16 @@ function searchRoot(root, maxDepth) {
         alpha = Math.max(alpha, actualScore);
       }
     }
+    CACHE[fen] = {
+      depth: maxDepth,
+      best: bestMove.from + bestMove.to,
+      line: bestLine,
+      timestamp: Date.now()
+    };
+    saveCache();
     return { best: bestMove.from + bestMove.to, line: bestLine, sortedMoves: moves };
   }
-  
-
-function evalNode(node) { //SCHEMAT: PUNKTY BIAŁYCH - PUNKTY CZARNYCH, DLA CZARNEGO IM NIZSZY WYNIK TYM LEPIEJ
+function evalNode(node) {
     const board = node.board();
     const materialValues = { p: 1, n: 3, b: 3, r: 5, q: 9 };
     const centerSquares = ['d4', 'd5', 'e4', 'e5'];
@@ -172,17 +171,14 @@ function evalNode(node) { //SCHEMAT: PUNKTY BIAŁYCH - PUNKTY CZARNYCH, DLA CZAR
     let centerControlWhite = 0;
     let centerControlBlack = 0;
     const phase = pieceCount > 26 ? 'opening' : pieceCount > 14 ? 'midgame' : 'endgame';
-  
     for (let i = 0; i < 8; i++) {
       for (let j = 0; j < 8; j++) {
         const piece = board[i][j];
         if (!piece) continue;
         const val = materialValues[piece.type] || 0;
-        if (val) materialScore += piece.color === 'w' ? val : -val; //dodaje, gdy figura jest biala, odejmuje, gdy czarna
-  
+        if (val) materialScore += piece.color === 'w' ? val : -val;
         const square = String.fromCharCode('a'.charCodeAt(0) + j) + (8 - i);
         const moves = node.moves({ square, verbose: true });
-  
         if (piece.color === 'w') {
           activityCountsWhite[piece.type] += moves.length;
         }
@@ -199,20 +195,17 @@ function evalNode(node) { //SCHEMAT: PUNKTY BIAŁYCH - PUNKTY CZARNYCH, DLA CZAR
           }
         }
       }
-    }
-  
+    
     if (phase === 'opening') {
       activityScore = (activityCountsWhite.n - activityCountsBlack.n) * 0.2 + (activityCountsWhite.b - activityCountsBlack.b) * 0.2; 
     } else {
       activityScore = 0.1 * (activityCountsWhite.n + activityCountsWhite.b + activityCountsWhite.r + activityCountsWhite.q) - 0.1 * (activityCountsBlack.n + activityCountsBlack.b + activityCountsBlack.r + activityCountsBlack.q);
     }
-  
     const centerControlScore = centerControlWhite - centerControlBlack;
-  
     currentActivityDelta = activityScore;
     currentPieceDelta = materialScore;
     currentCenterControlDelta = centerControlScore;
     return (node.turn() === 'w' ? 1 : -1) * (materialScore + activityScore + (phase === 'opening' ? centerControlScore : 0));
-
   }
-  
+}
+module.exports = {searchRoot, evalNode, sortMoves};

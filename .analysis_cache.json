@@ -1,0 +1,13 @@
+{
+  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1": {
+    "depth": 4,
+    "best": "a2a3",
+    "line": [
+      "a2a3",
+      "b8c6",
+      "a3a4",
+      "c6b8"
+    ],
+    "timestamp": 1748560181163
+  }
+}

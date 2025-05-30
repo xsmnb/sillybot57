@@ -12,10 +12,12 @@ const rl = readline.createInterface({
   output: process.stdout,
   terminal: false,
 });
-rl.on("line", (fen) => {
-  rl.close();
-  startBot(fen.trim());
-});
+if (require.main === module) {
+  rl.on("line", (fen) => {
+    rl.close();
+    startBot(fen.trim());
+  });
+}
 function startBot(fen) {
   const root = new Chess(fen);
   let depth = 1;
